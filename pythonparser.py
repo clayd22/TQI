@@ -86,13 +86,10 @@ update our vwap calculation values
 def parse_for_vwap(message, messagelen, tradesdict, hourly_vwap_dict):
     if chr(message[18]) == 'B' or chr(message[18]) == 'S':  # BUY or SELL HAS OCCURRED
         shares = st.unpack('<I', message[19:23])[0]  # Shares is an unsigned integer
-        #print(shares)
         stock = message[23:31].decode('utf-8').rstrip()  # Stock symbol, padded with spaces
-        price_int = st.unpack('<I', message[32:36])[0]  # Price is an unsigned integer
+        price_int = st.unpack('<I', message[31:35])[0]  # Price is an unsigned integer
         price_precision = 4  # Assuming Price (4) format
         price = price_int / (10 ** price_precision)  # Convert to decimal with 4 decimal places
-
-        #print(price)
         timestamp_bytes = message[4:10] + b'\x00\x00'
         timestamp = st.unpack('<Q', timestamp_bytes)[0] / 1000000000
         trade_time = datetime.fromtimestamp(timestamp)
@@ -107,19 +104,13 @@ def parse_for_vwap(message, messagelen, tradesdict, hourly_vwap_dict):
         market_open_time = trade_time.replace(hour=9, minute=30, second=0, microsecond=0)
         hour = (trade_time - market_open_time).seconds // 3600
         if stock not in hourly_vwap_dict:
-            hourly_vwap_dict[stock] = {hour: []}
-        else:
-            if hour not in hourly_vwap_dict[stock]:
-                hourly_vwap_dict[stock][hour] = []
+            hourly_vwap_dict[stock] = [[] for _ in range(8)]  # Initialize 8 empty lists for each trading hour
 
-        hourly_vwap_dict[stock][hour].append((shares, price))
+        if hour < 8:  # Only consider trades during regular trading hours (9:30 AM to 4:00 PM)
+            hourly_vwap_dict[stock][hour].append((shares, price))
 
     return tradesdict, hourly_vwap_dict
 
-
-'''
-Main loop for setting input file and parameters.
-'''
 def main():
     inputFile = gz.open('01302019.NASDAQ_ITCH50.gz', 'rb')
     tradesdict = {}
@@ -134,11 +125,12 @@ def main():
     with open('hourly_vwap_results.txt', 'w') as f:
         f.write("Stock,Hour,VWAP\n")  # Header
         for stock, hourly_vwaps in hourly_vwap_dict.items():
-            for hour, vwaps in hourly_vwaps.items():
+            for hour, vwaps in enumerate(hourly_vwaps):
                 total_shares = sum(trade[0] for trade in vwaps)
                 total_value = sum(trade[0] * trade[1] for trade in vwaps)
                 hourly_vwap = total_value / total_shares if total_shares > 0 else 0
-                hour_str = f"{hour + 9:02d}:30:00"  # Format hour as HH:MM:SS
-                f.write(f"{stock},{hour_str},{hourly_vwap:.4f}\n")  # Format VWAP with 4 decimal places
+                hour_str = f"{hour + 9:02d}:30:00"  # Format hour as HH:MM:SS 
+                f.write(f"{stock},{hour_str},{hourly_vwap:.4f}\n")
+
 if __name__ == "__main__":
     main()
